@@ -7,7 +7,9 @@
   const colors = { valid: '#008795', missing: '#cbd5e1', unknown: '#c68a20', invalid: '#cc5261', approved: '#008795', submitted: '#467cb3', resubmitted: '#7b68aa', changes_requested: '#c68a20', draft: '#94a3b8' };
   const qualityLabels = { valid: 'مقدار معتبر', missing: 'ثبت‌نشده', unknown: 'نامشخص / علامت *', invalid: 'مقدار نامعتبر' };
   const params = new URLSearchParams(location.search);
-  const state = { mode: params.get('mode') === 'records' ? 'records' : 'source',
+  const state = { mode: ['demo', 'source', 'records'].includes(params.get('mode')) ? params.get('mode') : 'demo',
+    compareA: D.counties.includes(params.get('compareA')) ? params.get('compareA') : '',
+    compareB: D.counties.includes(params.get('compareB')) ? params.get('compareB') : '',
     view: ['overview', 'domain', 'indicators', 'quality'].includes(params.get('view')) ? params.get('view') : 'overview',
     county: D.counties.includes(params.get('county')) ? params.get('county') : '',
     domain: D.definitions.some(d => d.id === params.get('domain')) ? params.get('domain') : '',
@@ -36,7 +38,7 @@
   function prepare() {
     if (state.view === 'domain' && !state.domain) state.domain = 'space';
     if (state.group && !D.definitions.some(d => (!state.domain || d.id === state.domain) && d.rows.some(r => r.group === state.group))) state.group = '';
-    full = state.mode === 'records' ? M.submissions(P.list(), state.basis) : M.workbook(window.PortalCountyData);
+    full = state.mode === 'records' ? M.submissions(P.list(), state.basis, P.origin()) : M.workbook(state.mode === 'demo' ? window.PortalDemoData.workbook : window.PortalCountyData);
     scope = M.filter(full, { county: state.county, domain: state.domain,
       type: state.mode === 'records' ? state.type : '', status: state.mode === 'records' ? state.status : '',
       period: state.mode === 'records' ? state.period : '', days: state.mode === 'records' ? state.days : '' });
@@ -50,10 +52,16 @@
       const row = rows.find(r => r.kind === 'count' && M.isNeed(r) && valid(r)) || rows.find(valid) || rows.find(r => r.kind === 'count' && M.isNeed(r)) || rows[0] || domain.rows[0];
       state.metric = M.key(domain.id, row.id);
     }
+    const counties = M.metric(selected, state.metric).counties;
+    const known = [...counties].filter(c => c.value !== null).sort((a, b) => b.value - a.value);
+    if (!counties.some(c => c.county === state.compareA)) state.compareA = (known[0] || counties[0])?.county || '';
+    if (state.compareB === state.compareA || !counties.some(c => c.county === state.compareB)) {
+      state.compareB = (known.find(c => c.county !== state.compareA) || counties.find(c => c.county !== state.compareA))?.county || '';
+    }
   }
   function syncURL() {
     const query = new URLSearchParams();
-    for (const name of ['mode', 'view', 'county', 'domain', 'metric', 'basis', 'type', 'status', 'period', 'days', 'search', 'group', 'kind', 'quality', 'sort']) if (state[name]) query.set(name, state[name]);
+    for (const name of ['mode', 'view', 'compareA', 'compareB', 'county', 'domain', 'metric', 'basis', 'type', 'status', 'period', 'days', 'search', 'group', 'kind', 'quality', 'sort']) if (state[name]) query.set(name, state[name]);
     history.replaceState(null, '', './index.html?' + query.toString());
   }
   function hero() {
@@ -61,7 +69,7 @@
     return '<section class="bi-hero"><div><span class="bi-eyebrow">' + icon('chart') + ' اطلس آموزشی خراسان شمالی</span><h1>' + e(titles[state.view]) + '</h1><p>از وضعیت استان به حوزه، شاخص و شهرستان برسید.</p><div class="bi-hero-meta">' + number(D.counties.length) + ' شهرستان<span>·</span>' + number(D.definitions.length) + ' حوزه<span>·</span>' + number(D.indicatorCount) + ' شاخص</div></div><div class="bi-hero-actions"><div><button class="button" data-bi-action="refresh" id="bi-refresh">' + icon('refresh') + 'بازمحاسبه</button><button class="button" data-bi-action="print">' + icon('print') + 'چاپ / PDF</button><button class="button bi-export" data-bi-action="export">' + icon('download') + 'خروجی CSV</button></div></div></section>';
   }
   function modes() {
-    return '<div class="bi-source-switch" role="tablist" aria-label="منبع اطلاعات"><span>منبع تحلیل</span>' + [['source', 'جداول اصلی شهرستان‌ها', 'chart'], ['records', 'پرونده‌های ثبت‌شده', 'file']].map(([mode, label, image]) => '<button type="button" role="tab" id="bi-mode-' + mode + '" aria-selected="' + (state.mode === mode) + '" aria-controls="bi-report" tabindex="' + (state.mode === mode ? 0 : -1) + '" class="' + (state.mode === mode ? 'is-active' : '') + '" data-bi-action="mode" data-mode="' + mode + '">' + icon(image) + e(label) + '</button>').join('') + '</div>';
+    return '<div class="bi-source-switch" role="tablist" aria-label="منبع اطلاعات"><span>منبع تحلیل</span>' + [['demo', 'داده آزمایشی کامل', 'spark'], ['source', 'جداول اصلی شهرستان‌ها', 'chart'], ['records', 'پرونده‌های ثبت‌شده', 'file']].map(([mode, label, image]) => '<button type="button" role="tab" id="bi-mode-' + mode + '" aria-selected="' + (state.mode === mode) + '" aria-controls="bi-report" tabindex="' + (state.mode === mode ? 0 : -1) + '" class="' + (state.mode === mode ? 'is-active' : '') + '" data-bi-action="mode" data-mode="' + mode + '">' + icon(image) + e(label) + '</button>').join('') + '</div>';
   }
   function filters() {
     let html = field('bi-county', 'شهرستان', options(D.counties, 'همه شهرستان‌ها'), state.county) +
@@ -74,13 +82,18 @@
     }
     return '<section class="panel bi-filter-panel" aria-label="فیلترهای گزارش"><div class="bi-filter-title">' + icon('filter') + '<strong>محدوده تحلیل</strong><button class="text-button" data-bi-action="reset" id="bi-reset">پاک کردن فیلترها</button></div><div class="bi-filters ' + (state.mode === 'records' ? 'bi-filters-records' : '') + '">' + html + '</div>' + (state.mode === 'records' ? '<div class="bi-basis">' + field('bi-basis', 'مبنای اطلاعات فرم', [{ value: 'submitted', label: 'آخرین نسخه ارسال‌شده؛ پیش‌نویس‌ها کنار گذاشته می‌شوند' }, { value: 'latest', label: 'آخرین فرم ذخیره‌شده؛ شامل پیش‌نویس و اصلاحات' }], state.basis) + '<span>' + e(P.dataLabel()) + '</span></div>' : '') + '</section>';
   }
+  function demoBanner() {
+    if (full.origin !== 'demo') return '';
+    const note = state.mode === 'demo' ? '۲۵۰۰ مقدار آزمایشی برای ۲۵۰ شاخص در ۱۰ شهرستان. این سناریو برای بررسی نمودارها و امکانات تحلیل است.' : number(P.list().length) + ' پرونده آزمایشی برای بررسی فیلترها و گردش پرونده‌ها؛ تعداد در محدوده فعلی با مبنای فرم و فیلترها تغییر می‌کند.';
+    return '<aside class="bi-demo-banner" aria-label="ماهیت آزمایشی داده"><span class="bi-demo-badge">آزمایشی</span><div><strong>همه مقادیر این منبع ساختگی‌اند</strong><p>' + note + '</p></div><button class="text-button" data-bi-action="mode" data-mode="source">مشاهده جداول اصلی' + icon('chevron') + '</button></aside>';
+  }
   function card(value, title, note, image, tone) {
     return '<article class="panel bi-kpi ' + (tone || '') + '"><div class="bi-kpi-top"><span>' + e(title) + '</span><span class="bi-kpi-icon">' + icon(image) + '</span></div><strong class="bi-kpi-value">' + value + '</strong><small>' + e(note) + '</small></article>';
   }
   function kpis() {
     if (state.view === 'domain') return focusCards();
     const s = M.summary(selected), q = s.quality;
-    return '<section class="bi-kpis" aria-label="شاخص‌های کلیدی">' + (state.mode === 'source' ?
+    return '<section class="bi-kpis" aria-label="شاخص‌های کلیدی">' + (state.mode !== 'records' ?
       card(number(s.counties), 'شهرستان دارای مقدار معتبر', 'از ' + number(selected.entities.length) + ' شهرستان در محدوده', 'building') +
       card(percent(q.percent), 'پوشش داده‌های جدول', number(q.valid) + ' مقدار معتبر از ' + number(q.total) + ' سلول', 'check', 'bi-kpi-accent') +
       card(number(s.needIndicators), 'شاخص نیاز با مقدار مثبت', 'تعداد شاخص‌ها؛ نیازهای مختلف با هم جمع نشده‌اند', 'chart') +
@@ -105,10 +118,24 @@
     if (m.numeric) {
       chart = '<div class="bi-bars" aria-label="مقادیر شاخص به تفکیک شهرستان">' + m.counties.map(c => '<button class="bi-bar-row" data-bi-action="county" data-county="' + e(c.county) + '" aria-label="' + e(c.county + ': ' + (c.value === null ? 'داده ثبت نشده' : number(c.value)) + '؛ ' + number(c.quality.valid) + ' مقدار معتبر از ' + number(c.quality.total) + '؛ فیلتر این شهرستان') + '"><span class="bi-bar-name">' + e(c.county) + '</span><span class="bi-bar-track"><span class="bi-bar-fill" style="width:' + (c.value === null ? 0 : c.value / maximum * 100) + '%"></span>' + (c.value === null ? '<span class="bi-no-value">فاقد مقدار معتبر</span>' : '') + '</span><b>' + number(c.value) + (c.quality.valid && c.quality.valid < c.quality.total ? '<span title="جمع ناقص؛ بعضی مقادیر موجود نیستند">*</span>' : '') + '</b></button>').join('') + '</div>';
     } else {
-      chart = m.distribution.length ? '<div class="bi-distribution">' + m.distribution.map(item => '<div><span>' + e(D.fa(item.label)) + '</span><b>' + number(item.value) + ' ' + (state.mode === 'source' ? 'شهرستان' : 'مرکز') + '</b></div>').join('') + '</div>' : empty('برای این شاخص مقدار معتبری ثبت نشده');
+      chart = m.distribution.length ? '<div class="bi-distribution">' + m.distribution.map(item => '<div><span>' + e(D.fa(item.label)) + '</span><b>' + number(item.value) + ' ' + (state.mode !== 'records' ? 'شهرستان' : 'مرکز') + '</b></div>').join('') + '</div>' : empty('برای این شاخص مقدار معتبری ثبت نشده');
     }
     const audit = !state.county && selected.audits.find(a => a.domainId === domainId && a.rowId === rowId);
-    return '<section class="panel bi-panel bi-main-chart">' + panelHeader('مقایسه شهرستان‌ها', 'روی نام یا میله هر شهرستان کلیک کنید تا گزارش فیلتر شود.', m.numeric ? 'یک شاخص، یک واحد' : 'توزیع پاسخ‌ها') + '<div class="bi-metric-controls">' + metricSelector() + '</div><div class="bi-metric-summary"><div><span>' + e(rowTitle(domain, row)) + '</span><strong>' + (m.numeric ? number(m.sum) : number(m.quality.valid)) + '<small>' + (m.numeric ? 'جمع مقادیر معتبر' : 'پاسخ معتبر') + '</small></strong></div><span class="bi-tag">' + number(m.quality.valid) + ' از ' + number(m.quality.total) + ' ' + (state.mode === 'source' ? 'شهرستان' : 'مرکز') + ' دارای داده</span></div>' + chart + '<p class="bi-chart-note">' + (m.numeric ? 'عدد صفر یعنی مقدار صفر ثبت شده؛ خط تیره یعنی مقدار معتبر موجود نیست. علامت * کنار جمع یعنی بخشی از داده‌ها ناقص است.' : 'مقادیر متنی، وجود/عدم وجود و سال، جمع عددی نمی‌شوند.') + '</p>' + (audit ? '<div class="bi-inline-warning">' + icon('warning') + '<span>جمع فایل: ' + number(audit.reported) + '؛ جمع مقادیر موجود: ' + number(audit.calculated) + (audit.partial ? '؛ برخی شهرستان‌ها داده ندارند.' : '؛ این مغایرت باید بررسی شود.') + '</span></div>' : '') + '</section>';
+    return '<section class="panel bi-panel bi-main-chart">' + panelHeader('مقایسه شهرستان‌ها', 'روی نام یا میله هر شهرستان کلیک کنید تا گزارش فیلتر شود.', m.numeric ? 'یک شاخص، یک واحد' : 'توزیع پاسخ‌ها') + '<div class="bi-metric-controls">' + metricSelector() + '</div><div class="bi-metric-summary"><div><span>' + e(rowTitle(domain, row)) + '</span><strong>' + (m.numeric ? number(m.sum) : number(m.quality.valid)) + '<small>' + (m.numeric ? 'جمع مقادیر معتبر' : 'پاسخ معتبر') + '</small></strong></div><span class="bi-tag">' + number(m.quality.valid) + ' از ' + number(m.quality.total) + ' ' + (state.mode !== 'records' ? 'شهرستان' : 'مرکز') + ' دارای داده</span></div>' + chart + '<p class="bi-chart-note">' + (m.numeric ? 'عدد صفر یعنی مقدار صفر ثبت شده؛ خط تیره یعنی مقدار معتبر موجود نیست. علامت * کنار جمع یعنی بخشی از داده‌ها ناقص است.' : 'مقادیر متنی، وجود/عدم وجود و سال، جمع عددی نمی‌شوند.') + '</p>' + (audit ? '<div class="bi-inline-warning">' + icon('warning') + '<span>جمع فایل: ' + number(audit.reported) + '؛ جمع مقادیر موجود: ' + number(audit.calculated) + (audit.partial ? '؛ برخی شهرستان‌ها داده ندارند.' : '؛ این مغایرت باید بررسی شود.') + '</span></div>' : '') + '</section>';
+  }
+  function comparisonPanel() {
+    const result = A.compareCounties(selected, state.metric, state.compareA, state.compareB), m = result.metric;
+    if (!m.numeric) return '';
+    const names = m.counties.map(c => c.county);
+    if (names.length < 2) return '<section class="panel bi-panel bi-wide">' + panelHeader('مقایسه دو شهرستان', 'برای مقایسه این شاخص، دست‌کم دو شهرستان در محدوده لازم است.') + '<button class="button button-secondary" data-bi-action="compare-all">نمایش همه شهرستان‌ها برای مقایسه</button></section>';
+    const choices = names.map(county => ({ value: county, label: county }));
+    function valueCard(county) {
+      return '<div><span>' + e(county.county) + '</span><strong>' + number(county.value) + '</strong><small>' + number(county.quality.valid) + ' از ' + number(county.quality.total) + ' مقدار معتبر</small></div>';
+    }
+    const leaders = A.concentration(selected, state.metric).slice(0, 3);
+    const partial = m.quality.valid !== m.quality.total;
+    const note = !result.ready ? 'برای محاسبه اختلاف، هر دو شهرستان باید مقدار معتبر و پوشش کامل داشته باشند. داده ناقص با صفر مقایسه نمی‌شود.' : result.first.value === 0 ? 'اختلاف عددی قابل محاسبه است؛ درصد اختلاف با مبنای صفر تعریف نمی‌شود.' : 'اختلاف = مقدار شهرستان دوم منهای اول؛ درصد اختلاف با مبنای شهرستان اول محاسبه می‌شود.';
+    return '<section class="panel bi-panel bi-wide bi-comparison-panel">' + panelHeader('مقایسه دو شهرستان و تمرکز مقدار', 'مقایسه فقط برای شاخص انتخاب‌شده و فیلترهای فعلی انجام می‌شود.', 'همان شاخص نمودار بالا') + '<div class="bi-comparison-layout"><div><div class="bi-comparison-selects">' + field('bi-compareA', 'شهرستان اول · مبنا', choices, state.compareA) + field('bi-compareB', 'شهرستان دوم', choices.filter(c => c.value !== state.compareA), state.compareB) + '</div><div class="bi-comparison-values">' + valueCard(result.first) + valueCard(result.second) + '<div class="bi-comparison-delta"><span>اختلاف دوم با اول</span><strong>' + number(result.difference) + '</strong><small>واحد همان شاخص</small></div><div class="bi-comparison-delta"><span>درصد اختلاف نسبت به اول</span><strong>' + percent(result.changePercent) + '</strong><small>تفاوت مقدار؛ شاخص تحقق نیاز نیست</small></div></div><p class="bi-chart-note">' + note + '</p></div><aside class="bi-concentration"><h3>سه شهرستان با بیشترین مقدار معلوم</h3>' + (leaders.length ? '<ol>' + leaders.map(county => '<li><span>' + e(county.county) + '<small>' + number(county.value) + (county.partial ? '*' : '') + ' · مقدار معلوم</small></span><b>' + percent(county.share) + '</b></li>').join('') + '</ol>' : '<p>مقدار عددی مثبت برای محاسبه سهم ثبت نشده است.</p>') + '<p class="bi-chart-note">سهم از مجموع مقادیر معتبر همین شاخص در محدوده فعلی.' + (partial ? ' مجموع معلوم ناقص است؛ شهرستان فاقد مقدار در محاسبه سهم نیست.' : '') + ' این سهم، اولویت بودجه را تعیین نمی‌کند.</p></aside></div></section>';
   }
   function donut(items, label, center, note) {
     const total = items.reduce((n, item) => n + item.value, 0);
@@ -121,7 +148,7 @@
     return '<section class="panel bi-panel">' + panelHeader('کیفیت و پوشش اطلاعات', 'میزان قابل اتکا بودن نمای فعلی', 'کل محدوده') + donut(Object.keys(qualityLabels).map(status => ({ label: qualityLabels[status], value: q[status], color: colors[status] })), 'کیفیت داده', percent(q.percent), 'مقدار معتبر') + '<div class="bi-info-note">' + icon('info') + '<p>سلول خالی و مقدار نامشخص وارد جمع نمی‌شوند. کامل بودن داده به معنی تأیید صحت آن نیست.</p></div></section>';
   }
   function needsPanel() {
-    const ds = M.domains(selected), unit = state.mode === 'source' ? 'شهرستان' : 'مرکز';
+    const ds = M.domains(selected), unit = state.mode !== 'records' ? 'شهرستان' : 'مرکز';
     const maximum = Math.max(1, selected.entities.length);
     return '<section class="panel bi-panel">' + panelHeader(unit + '‌های دارای نیاز در هر حوزه', 'هر ' + unit + ' در هر حوزه حداکثر یک بار شمرده می‌شود.', 'تعداد ' + unit) + '<div class="bi-domain-bars">' + ds.map(d => '<button data-bi-action="domain" data-domain="' + d.id + '" class="bi-domain-row"><span>' + e(domainTitle(d)) + '<small>پوشش داده ' + percent(d.quality.percent) + '</small></span><div><span style="width:' + d.needEntities / maximum * 100 + '%"></span></div><b>' + number(d.needEntities) + '</b></button>').join('') + '</div><p class="bi-chart-note">نیاز مثبت در یکی از شاخص‌های موردنیاز، نیازمند یا فاقد. این نمودار شدت نیاز یا رتبه اولویت بودجه نیست.</p></section>';
   }
@@ -146,16 +173,16 @@
   }
   function insights() {
     const q = M.quality(selected.facts), audits = selected.audits;
-    return '<section class="bi-insights" aria-label="نکات قابل پیگیری"><article><span>' + icon('info') + '</span><div><h3>' + (q.percent === 100 ? 'همه مقادیر جدول ثبت شده‌اند' : 'تکمیل اطلاعات پیش از تصمیم نهایی') + '</h3><p>' + number(q.missing) + ' مقدار ثبت‌نشده و ' + number(q.unknown) + ' مقدار نامشخص در این محدوده وجود دارد.</p></div></article><article><span>' + icon('warning') + '</span><div><h3>' + (state.mode === 'source' ? number(audits.length) + ' جمع منبع نیازمند بازبینی' : 'مبنای ارسال و تأیید را جدا ببینید') + '</h3><p>' + (state.mode === 'source' ? 'جمع ستون منبع با مقادیر موجود شهرستان‌ها تطبیق داده شد. بازبینی جمع، مربوط به کل فایل است.' : 'فیلتر «تأیید شده» فقط پرونده‌های نهایی را نشان می‌دهد؛ پیش‌نویس از مبنای ارسال حذف است.') + '</p></div></article><article><span>' + icon('spark') + '</span><div><h3>نیازهای هم‌پوشان، افراد متفاوت نیستند</h3><p>یک دانش‌آموز می‌تواند چند نیاز داشته باشد. جمع چند گروه حمایتی، تعداد افراد یکتا را نشان نمی‌دهد.</p></div></article></section>';
+    return '<section class="bi-insights" aria-label="نکات قابل پیگیری"><article><span>' + icon('info') + '</span><div><h3>' + (q.percent === 100 ? 'همه مقادیر جدول ثبت شده‌اند' : 'تکمیل اطلاعات پیش از تصمیم نهایی') + '</h3><p>' + number(q.missing) + ' مقدار ثبت‌نشده و ' + number(q.unknown) + ' مقدار نامشخص در این محدوده وجود دارد.</p></div></article><article><span>' + icon('warning') + '</span><div><h3>' + (state.mode !== 'records' ? number(audits.length) + ' جمع منبع نیازمند بازبینی' : 'مبنای ارسال و تأیید را جدا ببینید') + '</h3><p>' + (state.mode !== 'records' ? 'جمع ستون منبع با مقادیر موجود شهرستان‌ها تطبیق داده شد. بازبینی جمع، مربوط به کل فایل است.' : 'فیلتر «تأیید شده» فقط پرونده‌های نهایی را نشان می‌دهد؛ پیش‌نویس از مبنای ارسال حذف است.') + '</p></div></article><article><span>' + icon('spark') + '</span><div><h3>نیازهای هم‌پوشان، افراد متفاوت نیستند</h3><p>یک دانش‌آموز می‌تواند چند نیاز داشته باشد. جمع چند گروه حمایتی، تعداد افراد یکتا را نشان نمی‌دهد.</p></div></article></section>';
   }
   function detailsTable() {
     const m = M.metric(selected, state.metric), entityMap = new Map(selected.entities.map(e => [e.id, e]));
     const [domainId, rowId] = state.metric.split(':'), domain = D.definitions.find(d => d.id === domainId), row = domain.rows.find(r => r.id === rowId);
     const rows = m.facts.map(f => {
       const entity = entityMap.get(f.entityId);
-      return '<tr><th scope="row">' + e(entity.name) + (entity.code ? '<small>کد ' + e(D.fa(entity.code)) + '</small>' : '') + '</th>' + (state.mode === 'records' ? '<td>' + e(entity.county) + '</td>' : '') + '<td class="bi-value-cell">' + (f.status === 'valid' ? e(f.kind === 'count' ? number(f.value) : D.fa(f.value)) : '—') + '</td><td><span class="bi-data-status data-' + f.status + '">' + e(qualityLabels[f.status]) + '</span></td><td><button type="button" class="text-button" data-bi-action="details" data-entity="' + e(entity.id) + '" data-domain="' + domainId + '">' + (state.mode === 'source' ? 'جدول منبع' : 'پرونده مرکز') + icon('chevron') + '</button></td></tr>';
+      return '<tr><th scope="row">' + e(entity.name) + (entity.code ? '<small>کد ' + e(D.fa(entity.code)) + '</small>' : '') + '</th>' + (state.mode === 'records' ? '<td>' + e(entity.county) + '</td>' : '') + '<td class="bi-value-cell">' + (f.status === 'valid' ? e(f.kind === 'count' ? number(f.value) : D.fa(f.value)) : '—') + '</td><td><span class="bi-data-status data-' + f.status + '">' + e(qualityLabels[f.status]) + '</span></td><td><button type="button" class="text-button" data-bi-action="details" data-entity="' + e(entity.id) + '" data-domain="' + domainId + '">' + (state.mode !== 'records' ? 'جدول منبع' : 'پرونده مرکز') + icon('chevron') + '</button></td></tr>';
     }).join('');
-    return '<section class="panel bi-panel bi-wide">' + panelHeader('جزئیات شاخص انتخاب‌شده', rowTitle(domain, row), number(m.facts.length) + ' ردیف') + '<div class="bi-table-scroll"><table class="bi-detail-table"><caption class="sr-only">' + e(rowTitle(domain, row)) + '</caption><thead><tr><th scope="col">' + (state.mode === 'source' ? 'شهرستان' : 'مرکز / کد') + '</th>' + (state.mode === 'records' ? '<th scope="col">شهرستان</th>' : '') + '<th scope="col">مقدار معتبر</th><th scope="col">وضعیت داده</th><th scope="col">مشاهده</th></tr></thead><tbody>' + rows + '</tbody></table></div></section>';
+    return '<section class="panel bi-panel bi-wide">' + panelHeader('جزئیات شاخص انتخاب‌شده', rowTitle(domain, row), number(m.facts.length) + ' ردیف') + '<div class="bi-table-scroll"><table class="bi-detail-table"><caption class="sr-only">' + e(rowTitle(domain, row)) + '</caption><thead><tr><th scope="col">' + (state.mode !== 'records' ? 'شهرستان' : 'مرکز / کد') + '</th>' + (state.mode === 'records' ? '<th scope="col">شهرستان</th>' : '') + '<th scope="col">مقدار معتبر</th><th scope="col">وضعیت داده</th><th scope="col">مشاهده</th></tr></thead><tbody>' + rows + '</tbody></table></div></section>';
   }
   function viewTabs() {
     return '<nav class="bi-view-tabs" aria-label="نمای تحلیل">' + [['overview', 'نمای مدیریتی'], ['domain', 'تحلیل هر حوزه'], ['indicators', 'جدول همه شاخص‌ها'], ['quality', 'کیفیت و نواقص داده']].map(([view, title]) => '<button type="button" data-bi-action="view" data-view="' + view + '" class="' + (state.view === view ? 'is-active' : '') + '"' + (state.view === view ? ' aria-current="page"' : '') + '>' + e(title) + '</button>').join('') + '</nav>';
@@ -173,13 +200,13 @@
   }
   function domainHeading() {
     const d = D.definitions.find(d => d.id === state.domain), q = M.quality(selected.facts);
-    return '<section class="bi-domain-heading"><span class="bi-domain-symbol">' + UI.icon(d.id) + '</span><div><h2>' + e(d.title) + '</h2><p>' + e(A.domainInfo[d.id].note) + '</p></div><div class="bi-scope-chips"><span>' + number(A.catalog(selected).length) + ' شاخص</span><span>' + percent(q.percent) + ' پوشش</span><span>' + number(selected.entities.length) + ' ' + (state.mode === 'source' ? 'شهرستان' : 'پرونده') + '</span></div></section>';
+    return '<section class="bi-domain-heading"><span class="bi-domain-symbol">' + UI.icon(d.id) + '</span><div><h2>' + e(d.title) + '</h2><p>' + e(A.domainInfo[d.id].note) + '</p></div><div class="bi-scope-chips"><span>' + number(A.catalog(selected).length) + ' شاخص</span><span>' + percent(q.percent) + ' پوشش</span><span>' + number(selected.entities.length) + ' ' + (state.mode !== 'records' ? 'شهرستان' : 'پرونده') + '</span></div></section>';
   }
   function focusCards() {
     const rows = A.catalog(selected);
     const ids = A.domainInfo[state.domain].focus.map(id => state.domain + ':' + id);
     const focus = (state.group ? rows.slice(0, 4) : ids.map(key => rows.find(r => r.key === key)).filter(Boolean));
-    return '<section class="bi-kpis bi-focus-cards" aria-label="شاخص‌های حوزه">' + focus.map(row => '<button class="panel bi-kpi bi-focus-card" data-bi-action="indicator" data-metric="' + row.key + '"><span class="bi-kpi-top"><span>' + e(row.title) + '</span>' + icon('chart') + '</span><strong class="bi-kpi-value">' + amount(row) + '</strong><span class="bi-focus-unit">' + (row.metric.numeric ? 'جمع همین شاخص در محدوده' : 'پاسخ معتبر؛ توزیع در نمودار') + '</span>' + coverageTag(row) + '<small>' + number(row.metric.quality.valid) + ' از ' + number(row.metric.quality.total) + ' ' + (state.mode === 'source' ? 'شهرستان' : 'مرکز') + ' دارای مقدار معتبر</small></button>').join('') + '</section>';
+    return '<section class="bi-kpis bi-focus-cards" aria-label="شاخص‌های حوزه">' + focus.map(row => '<button class="panel bi-kpi bi-focus-card" data-bi-action="indicator" data-metric="' + row.key + '"><span class="bi-kpi-top"><span>' + e(row.title) + '</span>' + icon('chart') + '</span><strong class="bi-kpi-value">' + amount(row) + '</strong><span class="bi-focus-unit">' + (row.metric.numeric ? 'جمع همین شاخص در محدوده' : 'پاسخ معتبر؛ توزیع در نمودار') + '</span>' + coverageTag(row) + '<small>' + number(row.metric.quality.valid) + ' از ' + number(row.metric.quality.total) + ' ' + (state.mode !== 'records' ? 'شهرستان' : 'مرکز') + ' دارای مقدار معتبر</small></button>').join('') + '</section>';
   }
   function groupCards() {
     const groups = A.groups(scope, state.domain);
@@ -223,8 +250,8 @@
   function content() {
     if (state.view === 'indicators') return allIndicatorTable();
     if (state.view === 'quality') return '<div class="bi-chart-grid">' + qualityPanel() + countyCoveragePanel() + heatmap() + auditPanel() + allIndicatorTable() + '</div>';
-    if (state.view === 'domain') return groupCards() + '<div class="bi-chart-grid">' + metricPanel() + pairsPanel() + allIndicatorTable() + extraFieldsPanel() + detailsTable() + '</div>';
-    return domainCards() + '<div class="bi-chart-grid">' + metricPanel() + qualityPanel() + needsPanel() + countyCoveragePanel() + followupsPanel() + heatmap() + (state.mode === 'records' ? workflowPanels() : '') + '</div>';
+    if (state.view === 'domain') return groupCards() + '<div class="bi-chart-grid">' + metricPanel() + pairsPanel() + comparisonPanel() + allIndicatorTable() + extraFieldsPanel() + detailsTable() + '</div>';
+    return domainCards() + '<div class="bi-chart-grid">' + metricPanel() + qualityPanel() + comparisonPanel() + needsPanel() + countyCoveragePanel() + followupsPanel() + heatmap() + (state.mode === 'records' ? workflowPanels() : '') + '</div>';
   }
   function methodology() {
     return '<details class="panel bi-method"><summary>' + icon('info') + 'روش محاسبه و خواندن گزارش' + icon('chevron') + '</summary><div><p><strong>پوشش اطلاعات:</strong> تعداد مقادیر معتبر تقسیم بر تعداد سلول‌های شاخص‌های جدول در محدوده انتخاب‌شده. «نامشخص»، «*»، خالی و مقدار نامعتبر در صورت کسر نیستند. صفر ثبت‌شده معتبر است.</p><p><strong>مبنای پرونده:</strong> پیش‌فرض آخرین نسخه ارسال‌شده است. در حالت «آخرین فرم ذخیره‌شده»، اصلاحات و پیش‌نویس هم وارد تحلیل می‌شوند. فیلتر تأییدشده، تحلیل پرونده‌های نهایی را جدا می‌کند.</p><p><strong>واحد شاخص:</strong> فقط مقادیر یک شاخص عددی با هم جمع می‌شوند. ظرفیت، تعداد مدرسه، تعداد تجهیز و تعداد دانش‌آموز با هم جمع نمی‌شوند؛ سال و متن هم مقدار عددی تجمیعی نیستند.</p><p><strong>حدود تحلیل:</strong> نمودارها بر ۲۵۰ شاخص جدول استوارند. جزئیات اقلام تجهیزات جدا از این شاخص‌هاست. داده بودجه و هزینه و تاریخچه مقادیر شهرستان‌ها در فایل منبع وجود ندارد؛ برای آن‌ها عدد یا روندی ساخته نشده است.</p></div></details>';
@@ -233,15 +260,15 @@
     clearTimeout(searchTimer);
     prepare(); syncURL(); UI.shell(state.mode, state.view, state.domain);
     const noEntities = !selected.entities.length;
-    const description = state.mode === 'source' ? 'منبع: مقادیر اصلی فایل «جمع آوری داده ها 2.xlsx»؛ سلول خالی تکمیل نشده است.' : 'منبع: ' + P.dataLabel() + '؛ ' + (state.basis === 'latest' ? 'آخرین فرم ذخیره‌شده.' : 'آخرین نسخه ارسال‌شده.');
-    root.innerHTML = '<div class="bi-dashboard">' + hero() + modes() + '<div id="bi-report" role="tabpanel" aria-labelledby="bi-mode-' + state.mode + '">' + (!selected.available ? '<section class="panel">' + empty('داده فایل منبع بارگذاری نشد', 'صفحه را تازه کنید تا فایل اطلاعات شهرستان‌ها دوباره بارگذاری شود.') + '</section>' : filters() + viewTabs() + '<div class="bi-source-caption"><span>' + icon('info') + e(description) + '</span><time>' + new Intl.DateTimeFormat('fa-IR', { hour: '2-digit', minute: '2-digit' }).format(refreshedAt) + ' · بازمحاسبه نما</time></div><div id="bi-announcement" class="sr-only" role="status" aria-live="polite">' + number(selected.entities.length) + ' ' + (state.mode === 'source' ? 'شهرستان' : 'پرونده') + ' در محدوده تحلیل</div>' + (state.view === 'domain' ? domainHeading() : '') + kpis() + (noEntities ? '<section class="panel">' + empty('پرونده‌ای در این محدوده نیست', 'فیلترها را پاک کنید یا مبنای فرم و وضعیت پرونده را تغییر دهید.') + '</section>' : content()) + (state.view === 'quality' ? insights() : '') + methodology()) + '</div>' + UI.footer() + '</div>';
+    const description = state.mode === 'demo' ? 'منبع: سناریوی آزمایشی کامل؛ همه عددها و پاسخ‌ها غیرواقعی‌اند.' : state.mode === 'source' ? 'منبع: مقادیر اصلی فایل «جمع آوری داده ها 2.xlsx»؛ سلول خالی تکمیل نشده است.' : 'منبع: ' + P.dataLabel() + '؛ ' + (state.basis === 'latest' ? 'آخرین فرم ذخیره‌شده.' : 'آخرین نسخه ارسال‌شده.');
+    root.innerHTML = '<div class="bi-dashboard">' + hero() + modes() + demoBanner() + '<div id="bi-report" role="tabpanel" aria-labelledby="bi-mode-' + state.mode + '">' + (!selected.available ? '<section class="panel">' + empty('داده فایل منبع بارگذاری نشد', 'صفحه را تازه کنید تا فایل اطلاعات شهرستان‌ها دوباره بارگذاری شود.') + '</section>' : filters() + viewTabs() + '<div class="bi-source-caption"><span>' + icon('info') + e(description) + '</span><time>' + new Intl.DateTimeFormat('fa-IR', { hour: '2-digit', minute: '2-digit' }).format(refreshedAt) + ' · بازمحاسبه نما</time></div><div id="bi-announcement" class="sr-only" role="status" aria-live="polite">' + number(selected.entities.length) + ' ' + (state.mode !== 'records' ? 'شهرستان' : 'پرونده') + ' در محدوده تحلیل</div>' + (state.view === 'domain' ? domainHeading() : '') + kpis() + (noEntities ? '<section class="panel">' + empty('پرونده‌ای در این محدوده نیست', 'فیلترها را پاک کنید یا مبنای فرم و وضعیت پرونده را تغییر دهید.') + '</section>' : content()) + (state.view === 'quality' ? insights() : '') + methodology()) + '</div>' + UI.footer() + '</div>';
     if (focusId) document.getElementById(focusId)?.focus({ preventScroll: true });
   }
   function download(table) {
     const model = selected;
     if (!model.facts.length || table && !A.selectRows(model, state).length) { UI.toast('در این محدوده داده‌ای برای خروجی وجود ندارد.', true); return; }
     const blob = new Blob([table ? A.tableCSV(model, state) : M.exportFacts(model)], { type: 'text/csv;charset=utf-8' }), url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href = url; a.download = 'education-needs-' + model.mode + '-' + new Date().toISOString().slice(0, 10) + '.csv';
+    const a = document.createElement('a'); a.href = url; a.download = 'education-needs-' + (model.mode === 'records' && model.origin === 'demo' ? 'demo-records' : model.mode) + '-' + new Date().toISOString().slice(0, 10) + '.csv';
     document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
     UI.toast('خروجی CSV برای محدوده انتخاب‌شده آماده شد. مقدار نامشخص در خروجی عددی خالی است.');
   }
@@ -267,7 +294,7 @@
     if (action === 'export-table') { download(true); return; }
     if (action === 'details') { UI.details(button.dataset.entity, button.dataset.domain, state.mode, state.basis); return; }
     if (action === 'print') { window.print(); return; }
-    if (action === 'mode') { if (!['source', 'records'].includes(button.dataset.mode)) return; state.mode = button.dataset.mode; render('bi-mode-' + state.mode); return; }
+    if (action === 'mode') { if (!['demo', 'source', 'records'].includes(button.dataset.mode)) return; state.mode = button.dataset.mode; render('bi-mode-' + state.mode); return; }
     if (action === 'view') {
       if (!['overview', 'domain', 'indicators', 'quality'].includes(button.dataset.view)) return;
       state.view = button.dataset.view; state.search = ''; state.kind = ''; state.quality = ''; state.sort = '';
@@ -288,15 +315,16 @@
     }
     if (action === 'group') { state.group = button.dataset.group || ''; state.metric = ''; state.search = ''; state.kind = ''; state.quality = ''; render(); return; }
     if (action === 'need-table') { state.view = 'indicators'; state.domain = ''; state.group = ''; state.kind = 'need'; state.quality = ''; state.search = ''; render('bi-kind'); return; }
+    if (action === 'compare-all') { state.county = ''; render('bi-compareA'); return; }
     if (action === 'refresh') { refreshedAt = new Date(); render('bi-refresh'); UI.toast('گزارش از داده‌های فعلی دوباره محاسبه شد.'); return; }
-    if (action === 'reset') { for (const name of ['county', 'type', 'status', 'period', 'days', 'metric', 'group', 'search', 'kind', 'quality', 'sort']) state[name] = ''; if (state.view !== 'domain') state.domain = ''; render('bi-reset'); return; }
+    if (action === 'reset') { for (const name of ['county', 'type', 'status', 'period', 'days', 'metric', 'group', 'search', 'kind', 'quality', 'sort', 'compareA', 'compareB']) state[name] = ''; if (state.view !== 'domain') state.domain = ''; render('bi-reset'); return; }
     if (action === 'county') { state.county = state.county === button.dataset.county ? '' : button.dataset.county; render('bi-county'); return; }
     if (action === 'cell') { state.view = 'domain'; state.county = button.dataset.county; state.domain = button.dataset.domain; state.group = ''; state.metric = ''; render('bi-county'); }
   });
   document.addEventListener('keydown', event => {
     if (!event.target.matches('[role="tab"][data-bi-action="mode"]') || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
-    event.preventDefault(); const modes = ['source', 'records'], index = modes.indexOf(state.mode);
-    state.mode = event.key === 'Home' ? modes[0] : event.key === 'End' ? modes[1] : modes[(index + 1) % 2];
+    event.preventDefault(); const modes = ['demo', 'source', 'records'], index = modes.indexOf(state.mode);
+    state.mode = event.key === 'Home' ? modes[0] : event.key === 'End' ? modes.at(-1) : modes[(index + (event.key === 'ArrowLeft' ? 1 : -1) + modes.length) % modes.length];
     render('bi-mode-' + state.mode);
   });
   window.addEventListener('storage', event => { if ([P.KEY, P.COPYKEY].includes(event.key) || event.key === null) { refreshedAt = new Date(); render(); } });

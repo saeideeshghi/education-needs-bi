@@ -93,11 +93,28 @@
   }
   function tableCSV(model, filters) {
     const names = [...new Set(model.entities.map(e => e.county))];
-    const data = [['domain', 'group', 'indicator_id', 'indicator', 'kind', ...names, 'sum_of_known_values', 'valid_cells', 'expected_cells', 'coverage_percent', 'is_partial']];
+    const data = [['domain', 'group', 'indicator_id', 'indicator', 'kind', ...names, 'sum_of_known_values', 'valid_cells', 'expected_cells', 'coverage_percent', 'is_partial', 'source', 'data_origin']];
     for (const row of selectRows(model, filters)) data.push([row.domainTitle, row.group, row.key, row.title, row.kind,
       ...names.map(county => countyCell(row, county).value ?? ''), row.metric.sum ?? '', row.metric.quality.valid,
-      row.metric.quality.total, row.metric.quality.percent ?? '', row.partial ? 1 : 0]);
+      row.metric.quality.total, row.metric.quality.percent ?? '', row.partial ? 1 : 0, model.mode, model.origin || model.mode]);
     return M.csv(data);
   }
-  window.EducationAnalysis = Object.freeze({ domainInfo, normalize, catalog, selectRows, domainReports, groups, followups, counties, countyCell, tableCSV });
+  function compareCounties(model, metricKey, firstCounty, secondCounty) {
+    const metric = M.metric(model, metricKey);
+    const first = metric.counties.find(c => c.county === firstCounty), second = metric.counties.find(c => c.county === secondCounty);
+    const complete = county => county && county.value !== null && county.quality.total > 0 && county.quality.valid === county.quality.total;
+    const ready = metric.numeric && firstCounty !== secondCounty && complete(first) && complete(second);
+    const difference = ready ? second.value - first.value : null;
+    return { metric, first, second, ready: !!ready, difference,
+      changePercent: ready && first.value > 0 ? difference / first.value * 100 : null };
+  }
+  function concentration(model, metricKey) {
+    const metric = M.metric(model, metricKey);
+    if (!metric.numeric || !(metric.sum > 0)) return [];
+    return metric.counties.filter(c => c.value > 0).sort((a, b) => b.value - a.value).map(county => ({
+      ...county, share: county.value / metric.sum * 100,
+      partial: county.quality.valid !== county.quality.total
+    }));
+  }
+  window.EducationAnalysis = Object.freeze({ domainInfo, normalize, catalog, selectRows, domainReports, groups, followups, counties, countyCell, tableCSV, compareCounties, concentration });
 })();

@@ -44,9 +44,9 @@
         }
       }
     }
-    return { mode: 'source', available: !!data, entities, facts, audits, extras: [], items: [] };
+    return { mode: data?.synthetic === true ? 'demo' : 'source', origin: data?.synthetic === true ? 'demo' : 'workbook', available: !!data, entities, facts, audits, extras: [], items: [] };
   }
-  function submissions(records, basis) {
+  function submissions(records, basis, origin = 'records') {
     const entities = [], facts = [], extras = [], items = [];
     for (const record of records) {
       const state = basis === 'latest' ? record.state : record.status !== 'draft' && record.snapshot;
@@ -74,7 +74,7 @@
         }
       }
     }
-    return { mode: 'records', available: true, entities, facts, extras, items, audits: [] };
+    return { mode: 'records', origin, available: true, entities, facts, extras, items, audits: [] };
   }
   function filter(model, filters, timestamp) {
     const f = filters || {}, time = timestamp ?? Date.now();
@@ -166,12 +166,12 @@
   function csv(rows) { return '\uFEFF' + rows.map(row => row.map(csvCell).join(',')).join('\r\n'); }
   function exportFacts(model) {
     const entities = new Map(model.entities.map(e => [e.id, e]));
-    const rows = [['source', 'entity_id', 'center_code', 'center_name', 'county', 'center_type', 'period', 'case_status', 'observed_at', 'domain_id', 'domain_title', 'indicator_id', 'indicator_title', 'indicator_group', 'value_kind', 'data_status', 'numeric_value', 'text_value', 'raw_value', 'is_need']];
+    const rows = [['source', 'entity_id', 'center_code', 'center_name', 'county', 'center_type', 'period', 'case_status', 'observed_at', 'domain_id', 'domain_title', 'indicator_id', 'indicator_title', 'indicator_group', 'value_kind', 'data_status', 'numeric_value', 'text_value', 'raw_value', 'is_need', 'data_origin']];
     for (const item of model.facts) {
       const entity = entities.get(item.entityId), domain = definitions.find(d => d.id === item.domainId);
       rows.push([model.mode, entity.id, entity.code, entity.name, entity.county, entity.type, entity.period, entity.status,
         entity.at || '', item.domainId, domain.title, item.rowId, item.title, item.group, item.kind, item.status,
-        item.status === 'valid' && item.kind === 'count' ? item.value : '', item.status === 'valid' && item.kind !== 'count' ? item.value : '', item.raw, item.need ? 1 : 0]);
+        item.status === 'valid' && item.kind === 'count' ? item.value : '', item.status === 'valid' && item.kind !== 'count' ? item.value : '', item.raw, item.need ? 1 : 0, model.origin || model.mode]);
     }
     return csv(rows);
   }

@@ -24,9 +24,12 @@ function harness(options = {}) {
     return elements.get(id);
   }
   const localStorage = storage();
+  if (options.book) localStorage.map.set('education-needs-bi:records:v1', JSON.stringify(options.book));
+  const query = new URLSearchParams(options.query || '');
+  if (!query.has('mode') && !options.defaultDemo) query.set('mode', 'source');
   if (options.portal) localStorage.map.set('education-needs-portal:records:v4', JSON.stringify(options.portal));
   const c = { URL, URLSearchParams, Blob, Event, crypto: crypto.webcrypto, localStorage,
-    location: { pathname: '/education-needs-bi/index.html', search: options.query || '', replace(url) { c.redirect = url; } },
+    location: { pathname: '/education-needs-bi/index.html', search: query.toString() ? '?' + query.toString() : '', replace(url) { c.redirect = url; } },
     history: { replaceState(a, b, url) { c.lastURL = url; } },
     matchMedia: () => ({ matches: false, addEventListener() {} }),
     setTimeout(callback, delay) { const id = nextTimer++; timers.set(id, { callback, delay }); return id; },
@@ -40,7 +43,10 @@ function harness(options = {}) {
   };
   c.window = c;
   vm.createContext(c);
-  for (const name of ['boot', 'source', 'county-data', 'data', 'standalone', 'analytics-config', 'analytics-model', 'analysis-catalog']) vm.runInContext(read(name), c, { filename: name + '.js' });
+  for (const name of ['boot', 'source', 'county-data', 'data', 'demo-data', 'standalone', 'analytics-config', 'analytics-model', 'analysis-catalog']) {
+    if (name === 'county-data' && options.noWorkbook) continue;
+    vm.runInContext(read(name), c, { filename: name + '.js' });
+  }
   c.PortalAnalyticsConfig = { ...c.PortalAnalyticsConfig, secureEmbedUrl: options.embed || '' };
   vm.runInContext(read('analytics'), c, { filename: 'analytics.js' });
   function action(dataset) {
@@ -98,18 +104,21 @@ test('default submission model excludes drafts and uses immutable sent snapshots
   sent.state.sections.equipment.rows.find(r => r.id === 'r3').value = '900';
   const snapshotValue = Number(sent.snapshot.sections.equipment.rows.find(r => r.id === 'r3').value);
   const submitted = M.submissions(records, 'submitted'), latest = M.submissions(records, 'latest');
-  assert.equal(submitted.entities.length, 6);
-  assert.equal(latest.entities.length, 8);
+  assert.equal(submitted.entities.length, 40);
+  assert.equal(latest.entities.length, 50);
   assert.equal(submitted.facts.find(f => f.entityId === sent.id && f.key === 'equipment:r3').value, snapshotValue);
   assert.equal(latest.facts.find(f => f.entityId === sent.id && f.key === 'equipment:r3').value, 900);
-  assert.equal(M.filter(submitted, { status: 'approved' }).entities.length, 2);
+  assert.equal(M.filter(submitted, { status: 'approved' }).entities.length, 10);
 });
 
 test('a requested amount is not subtracted from existing stock', () => {
   const { c, M } = harness();
-  const pair = M.pairs(M.submissions(c.Portal.list(), 'submitted')).find(p => p.domainId === 'equipment' && p.existingId === 'r2');
-  assert.equal(pair.existing.sum, 720);
-  assert.equal(pair.needed.sum, 108);
+  const record = c.Portal.list().find(r => r.status === 'submitted');
+  record.snapshot.sections.equipment.rows.find(r => r.id === 'r2').value = '120';
+  record.snapshot.sections.equipment.rows.find(r => r.id === 'r3').value = '18';
+  const pair = M.pairs(M.submissions([record], 'submitted')).find(p => p.domainId === 'equipment' && p.existingId === 'r2');
+  assert.equal(pair.existing.sum, 120);
+  assert.equal(pair.needed.sum, 18);
   assert.equal(pair.existingId, 'r2');
   assert.equal(pair.neededId, 'r3');
 });
@@ -137,7 +146,7 @@ test('cross filtering recalculates denominator at county and domain grain', () =
 
 test('empty record filters do not claim 0 percent coverage or divide by zero', () => {
   const { c, M } = harness();
-  const model = M.filter(M.submissions(c.Portal.list(), 'submitted'), { county: 'گرمه' });
+  const model = M.filter(M.submissions(c.Portal.list(), 'submitted'), { county: 'گرمه', period: '1399' });
   assert.equal(model.facts.length, 0);
   assert.equal(M.summary(model).quality.percent, null);
   assert.equal(M.summary(model).approvalPercent, null);
@@ -186,7 +195,7 @@ test('dashboard renders all nine domains, drilldown filters and empty state with
   assert.ok(h.c.lastURL.includes('domain=students'));
   assert.ok(h.html().includes('۲۱'));
   h.action({ biAction: 'mode', mode: 'records' });
-  h.change('county', 'گرمه');
+  h.change('period', '1399');
   assert.ok(h.html().includes('پرونده‌ای در این محدوده نیست'));
   h.action({ biAction: 'reset' });
   h.action({ biAction: 'view', view: 'overview' });
@@ -209,7 +218,7 @@ test('independent route opens without a portal account and marks demo records cl
   assert.ok(!h.shell().includes('login.html'));
   assert.equal(h.c.PortalAuth, undefined);
   assert.equal(h.c.redirect, undefined);
-  assert.equal(h.c.Portal.list().length, 8);
+  assert.equal(h.c.Portal.list().length, 50);
 });
 
 test('exact scope can be reopened by URL and unrecognized query input is not executed', () => {
@@ -448,4 +457,213 @@ test('pending search cannot overwrite a newly selected domain and survives anoth
   h.tick(200);
   assert.equal([...h.html().matchAll(/data-indicator=/g)].length, 34);
   assert.ok(!h.c.lastURL.includes('search='));
+});
+
+test('the actual default route opens the complete demo with a visible non-real-data banner', () => {
+  const h = harness({ defaultDemo: true });
+  assert.ok(h.c.lastURL.includes('mode=demo'));
+  assert.ok(h.html().includes('همه مقادیر این منبع ساختگی‌اند'));
+  assert.ok(h.html().includes('۲۵۰۰ مقدار آزمایشی'));
+  assert.ok(h.shell().includes('داده آزمایشی کامل؛ غیرواقعی'));
+  assert.ok(h.html().includes('مقایسه دو شهرستان و تمرکز مقدار'));
+  assert.equal([...h.html().matchAll(/role="tab" id="bi-mode-/g)].length, 3);
+});
+
+test('the synthetic workbook covers every domain, indicator and county with valid varied values', () => {
+  const { c, D, M, A } = harness(), model = M.workbook(c.PortalDemoData.workbook);
+  const q = M.quality(model.facts);
+  assert.equal(model.mode, 'demo');
+  assert.equal(model.origin, 'demo');
+  assert.equal(q.total, 2500);
+  assert.equal(q.valid, 2500);
+  assert.equal(model.audits.length, 0);
+  assert.ok(model.facts.some(f => f.kind === 'count' && f.value === 0));
+  for (const domain of D.definitions) {
+    const report = A.domainReports(M.filter(model, { domain: domain.id }))[0];
+    assert.equal(report.indicators, domain.rows.length);
+    assert.equal(report.quality.percent, 100);
+    assert.ok(report.positiveNeeds > 0);
+    for (const row of domain.rows) {
+      const metric = M.metric(model, domain.id + ':' + row.id);
+      assert.equal(metric.quality.valid, 10);
+      assert.ok(new Set(metric.facts.map(f => f.value)).size > 1);
+    }
+  }
+  for (const county of D.counties) {
+    const schools = M.filter(model, { county, domain: 'nomadic' });
+    assert.equal(M.metric(schools, 'nomadic:r2').sum, M.metric(schools, 'nomadic:r5').sum + M.metric(schools, 'nomadic:r6').sum);
+  }
+});
+
+test('sample records cover all ten counties, statuses, center types and two periods', () => {
+  const { c, D, M } = harness(), records = c.Portal.list();
+  assert.equal(records.length, 50);
+  assert.equal(new Set(records.map(r => r.id)).size, 50);
+  assert.equal(new Set(records.map(r => r.state.profile.type)).size, D.profileChoices.type.length);
+  assert.equal(new Set(records.map(r => r.state.profile.period)).size, 2);
+  for (const county of D.counties) {
+    const selected = records.filter(r => r.county === county);
+    assert.equal(selected.length, 5);
+    assert.equal(new Set(selected.map(r => r.status)).size, 5);
+  }
+  assert.ok(records.every(r => r.state.profile.name.includes('آزمایشی')));
+  assert.equal(M.quality(M.submissions(records, 'latest').facts).valid, 12500);
+  assert.equal(M.quality(M.submissions(records, 'submitted').facts).valid, 10000);
+  assert.ok(Buffer.byteLength(JSON.stringify(c.Portal.exportBook())) < 5 * 1024 * 1024);
+});
+
+test('legacy demo data is refreshed while imported and unmarked local books are retained', () => {
+  const old = { version: 1, meta: { origin: 'demo' }, records: [importedRecord()] };
+  const updated = harness({ book: old, query: '?mode=records' });
+  assert.equal(updated.c.Portal.list().length, 50);
+  assert.equal(updated.c.Portal.exportBook().meta.seedVersion, 3);
+  for (const meta of [{ origin: 'file', name: 'mine.json' }, { origin: 'portal' }, {}]) {
+    const book = { version: 1, meta, records: [importedRecord()] };
+    const h = harness({ book, query: '?mode=records' });
+    assert.equal(JSON.stringify(h.c.Portal.exportBook()), JSON.stringify(book));
+    assert.equal(h.localStorage.writes.filter(k => k === h.c.Portal.KEY).length, 0);
+  }
+});
+
+test('switching source never mixes demo counts into the original workbook or imported forms', () => {
+  const h = harness({ defaultDemo: true });
+  const original = JSON.stringify(h.c.PortalCountyData);
+  h.action({ biAction: 'mode', mode: 'source' });
+  assert.ok(!h.html().includes('bi-demo-banner'));
+  assert.ok(h.html().includes('۱۲٬۴۰۵'));
+  assert.equal(h.M.quality(h.M.workbook(h.c.PortalCountyData).facts).valid, 331);
+  h.c.Portal.importBook([importedRecord()], 'file', 'actual.json');
+  h.action({ biAction: 'mode', mode: 'records' });
+  assert.ok(!h.html().includes('bi-demo-banner'));
+  assert.ok(h.html().includes('فایل واردشده: actual.json'));
+  h.action({ biAction: 'mode', mode: 'demo' });
+  assert.ok(h.html().includes('bi-demo-banner'));
+  assert.equal(h.c.Portal.list().length, 1);
+  assert.equal(JSON.stringify(h.c.PortalCountyData), original);
+});
+
+test('every demo view and domain displays populated tables and details with correct provenance', () => {
+  const h = harness({ query: '?mode=demo' });
+  for (const domain of h.D.definitions) {
+    h.action({ biAction: 'open-domain', domain: domain.id });
+    assert.ok(h.html().includes('bi-demo-banner'));
+    assert.equal([...h.html().matchAll(/data-indicator=/g)].length, domain.rows.length);
+    assert.ok(!h.html().includes('class="bi-catalog-cell cell-missing"'));
+    assert.ok(h.html().includes('bi-comparison-panel'));
+  }
+  for (const view of ['overview', 'indicators', 'quality']) {
+    h.action({ biAction: 'view', view });
+    assert.ok(h.html().includes('bi-demo-banner'));
+    const ids = [...h.html().matchAll(/\bid="([^"]+)"/g)].map(m => m[1]);
+    assert.equal(new Set(ids).size, ids.length);
+  }
+  h.action({ biAction: 'details', entity: 'اسفراین', domain: 'equipment' });
+  assert.equal(h.element('details-dialog').open, true);
+  assert.ok(h.element('details-dialog').innerHTML.includes('همه مقادیر این پنجره غیرواقعی‌اند'));
+});
+
+test('two-county comparison uses a single indicator and rejects incomplete or categorical comparisons', () => {
+  const { c, M, A } = harness(), model = M.workbook(c.PortalCountyData);
+  const result = A.compareCounties(model, 'students:r2', 'بجنورد', 'شیروان');
+  assert.equal(result.ready, true);
+  assert.equal(result.difference, 6629);
+  assert.ok(Math.abs(result.changePercent - 6629 / 21 * 100) < 1e-9);
+  assert.equal(A.compareCounties(model, 'students:r2', 'اسفراین', 'شیروان').difference, null);
+  assert.equal(A.compareCounties(model, 'students:r2', 'شیروان', 'شیروان').ready, false);
+  assert.equal(A.compareCounties(model, 'welfare:r38', 'بجنورد', 'شیروان').ready, false);
+  const partial = { ...model, facts: [...model.facts, { ...model.facts.find(f => f.key === 'students:r2' && f.county === 'بجنورد'), status: 'missing', value: null }] };
+  assert.equal(A.compareCounties(partial, 'students:r2', 'بجنورد', 'شیروان').difference, null);
+});
+
+test('a recorded zero allows absolute comparison without dividing by a zero baseline', () => {
+  const { c, M, A } = harness(), model = M.workbook(c.PortalDemoData.workbook);
+  const modified = { ...model, facts: model.facts.map(f => f.key === 'students:r2' && f.county === 'بجنورد' ? { ...f, value: 0, raw: 0 } : f) };
+  const comparison = A.compareCounties(modified, 'students:r2', 'بجنورد', 'شیروان');
+  assert.equal(comparison.ready, true);
+  assert.equal(comparison.difference, comparison.second.value);
+  assert.equal(comparison.changePercent, null);
+});
+
+test('concentration uses only known values of the selected indicator and recalculates with scope', () => {
+  const { c, M, A } = harness(), model = M.workbook(c.PortalCountyData);
+  const rows = A.concentration(model, 'students:r2');
+  assert.equal(rows[0].county, 'شیروان');
+  assert.equal(rows[0].value, 6650);
+  assert.ok(!rows.some(r => r.county === 'اسفراین'));
+  assert.ok(Math.abs(rows.reduce((sum, row) => sum + row.share, 0) - 100) < 1e-10);
+  assert.ok(Math.abs(rows[0].share - 6650 / 12405 * 100) < 1e-10);
+  assert.equal(A.concentration(M.filter(model, { county: 'بجنورد' }), 'students:r2')[0].share, 100);
+  assert.equal(A.concentration(model, 'welfare:r38').length, 0);
+  assert.equal(A.concentration(model, 'equipment:r3').length, 0);
+});
+
+test('comparison selectors survive URL reopening, single-county filters and source changes', () => {
+  const h = harness({ query: '?mode=demo&compareA=بجنورد&compareB=شیروان' });
+  assert.ok(h.html().includes('id="bi-compareA"'));
+  h.change('compareA', 'اسفراین');
+  const query = new URL(h.c.lastURL, 'https://example.org/').search;
+  const reopened = harness({ query });
+  assert.ok(reopened.html().includes('value="اسفراین" selected'));
+  h.action({ biAction: 'county', county: 'بجنورد' });
+  assert.ok(h.html().includes('نمایش همه شهرستان‌ها برای مقایسه'));
+  h.action({ biAction: 'compare-all' });
+  assert.ok(h.html().includes('bi-comparison-panel'));
+  h.action({ biAction: 'mode', mode: 'source' });
+  h.change('compareA', 'اسفراین');
+  assert.ok(h.html().includes('هر دو شهرستان باید مقدار معتبر و پوشش کامل داشته باشند'));
+});
+
+test('all CSV formats retain demo/source provenance, including demonstration records', () => {
+  const { c, M, A } = harness();
+  const demo = M.workbook(c.PortalDemoData.workbook), original = M.workbook(c.PortalCountyData);
+  const records = M.submissions(c.Portal.list(), 'submitted', c.Portal.origin());
+  for (const model of [demo, original, records]) {
+    const raw = M.exportFacts(model), wide = A.tableCSV(model, { search: 'کیف' });
+    assert.ok(raw.split('\r\n')[0].includes('"data_origin"'));
+    assert.ok(wide.split('\r\n')[0].includes('"data_origin"'));
+    assert.ok(raw.split('\r\n')[1].endsWith('"' + model.origin + '"'));
+    assert.ok(wide.split('\r\n')[1].endsWith('"' + model.mode + '","' + model.origin + '"'));
+  }
+});
+
+test('keyboard navigation cycles all three source tabs and keeps demo labels visible', () => {
+  const h = harness({ defaultDemo: true });
+  const target = { matches: () => true };
+  function key(key) { for (const callback of h.events.keydown) callback({ target, key, preventDefault() {} }); }
+  key('ArrowLeft'); assert.ok(h.c.lastURL.includes('mode=source'));
+  key('ArrowLeft'); assert.ok(h.c.lastURL.includes('mode=records'));
+  key('ArrowLeft'); assert.ok(h.c.lastURL.includes('mode=demo'));
+  key('ArrowRight'); assert.ok(h.c.lastURL.includes('mode=records'));
+  key('Home'); assert.ok(h.c.lastURL.includes('mode=demo'));
+  key('End'); assert.ok(h.c.lastURL.includes('mode=records'));
+  assert.ok(h.html().includes('همه مقادیر این منبع ساختگی‌اند'));
+});
+
+test('importing exported demonstration JSON retains its synthetic label without auto-reseeding it', () => {
+  const source = harness(), exported = JSON.parse(JSON.stringify(source.c.Portal.exportBook()));
+  exported.records = exported.records.filter(r => r.status === 'approved').slice(0, 2);
+  const target = harness({ query: '?mode=records' });
+  assert.equal(target.c.Portal.importBook(exported, 'file', 'demo-backup.json').ok, true);
+  target.c.dispatchEvent(new Event('bi-records-updated'));
+  assert.equal(target.c.Portal.list().length, 2);
+  assert.equal(target.c.Portal.origin(), 'demo');
+  assert.ok(target.html().includes('فایل آزمایشی واردشده: demo-backup.json'));
+  assert.ok(target.html().includes('همه مقادیر این منبع ساختگی‌اند'));
+  assert.ok(target.html().includes('۲ پرونده آزمایشی'));
+  target.action({ biAction: 'details', entity: exported.records[0].id, domain: 'safety' });
+  assert.ok(target.element('details-dialog').innerHTML.includes('پرونده آزمایشی؛ مقادیر ساختگی‌اند.'));
+  target.action({ biAction: 'refresh' });
+  assert.equal(target.c.Portal.list().length, 2);
+  const roundtrip = JSON.parse(JSON.stringify(target.c.Portal.exportBook()));
+  assert.equal(source.c.Portal.importBook(roundtrip, 'file', 'again.json').ok, true);
+  assert.equal(source.c.Portal.origin(), 'demo');
+});
+
+test('demo scenarios do not depend on original value files and source failure remains explicit', () => {
+  const h = harness({ defaultDemo: true, noWorkbook: true });
+  assert.equal(h.M.quality(h.M.workbook(h.c.PortalDemoData.workbook).facts).valid, 2500);
+  assert.ok(h.html().includes('همه مقادیر این منبع ساختگی‌اند'));
+  h.action({ biAction: 'mode', mode: 'source' });
+  assert.ok(h.html().includes('داده فایل منبع بارگذاری نشد'));
+  assert.ok(!h.html().includes('bi-demo-banner'));
 });

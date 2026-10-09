@@ -10,20 +10,9 @@
   const at = value => typeof value === 'string' && Number.isFinite(Date.parse(value)) ? value : null;
   let memory = null, toastTimer, menuOpen = false, previousFocus = null;
   function seedBook() {
-    const centers = [
-      ['center-01', 'دبیرستان نمونه', '123456', 'بجنورد', 'draft'], ['center-02', 'هنرستان امید', '223456', 'شیروان', 'draft'],
-      ['center-03', 'دبستان مهر', '123457', 'بجنورد', 'submitted'], ['center-04', 'هنرستان دانش', '123458', 'بجنورد', 'changes_requested'],
-      ['center-05', 'دبیرستان فرزانگان', '123459', 'بجنورد', 'approved'], ['center-06', 'دبستان فردا', '323456', 'اسفراین', 'approved'],
-      ['center-07', 'دبیرستان آفتاب', '423456', 'فاروج', 'submitted'], ['center-08', 'دبستان فرهنگ', '123460', 'بجنورد', 'resubmitted']
-    ];
-    const records = centers.map((c, index) => {
-      const state = D.seed(), submittedAt = new Date(Date.now() - (index + 1) * 86400000).toISOString();
-      state.profile = { ...state.profile, name: c[1], code: c[2], county: c[3], type: c[1].includes('هنرستان') ? 'هنرستان' : 'مدرسه', level: c[1].includes('دبستان') ? 'ابتدایی' : 'متوسطه دوم' };
-      if (c[4] !== 'draft') Object.values(state.sections).forEach(section => { section.completed = true; });
-      state.submission = c[4] === 'draft' ? null : { at: submittedAt, tracking: 'DEMO-1405-' + (10000001 + index) };
-      return { id: c[0], county: c[3], code: c[2], status: c[4], state, snapshot: c[4] === 'draft' ? null : clone(state), updatedAt: submittedAt };
-    });
-    return { version: 1, application: 'education-needs-bi', meta: { origin: 'demo', name: 'داده‌های نمونه داشبورد', importedAt: null }, records };
+    return { version: 1, application: 'education-needs-bi',
+      meta: { origin: 'demo', seedVersion: window.PortalDemoData.seedVersion, name: '۵۰ پرونده آزمایشی در ۱۰ شهرستان', importedAt: null },
+      records: window.PortalDemoData.records() };
   }
   function cleanState(raw) {
     if (!raw || typeof raw !== 'object' || !raw.profile || typeof raw.profile !== 'object') throw Error('ساختار فرم پرونده معتبر نیست.');
@@ -68,7 +57,14 @@
       const raw = localStorage.getItem(KEY);
       if (raw) {
         const book = JSON.parse(raw);
-        if (book.version === 1 && Array.isArray(book.records)) return book;
+        if (book.version === 1 && Array.isArray(book.records)) {
+          if (book.meta?.origin === 'demo' && book.meta.seedVersion !== window.PortalDemoData.seedVersion) {
+            if (!memory || memory.meta?.origin !== 'demo') memory = seedBook();
+            try { localStorage.setItem(KEY, JSON.stringify(memory)); } catch (_) {}
+            return clone(memory);
+          }
+          return book;
+        }
       }
     } catch (_) {}
     if (!memory) memory = seedBook();
@@ -82,8 +78,9 @@
   function importBook(input, origin, name) {
     try {
       const records = normalizeRecords(input);
+      const demo = origin !== 'portal' && input?.application === 'education-needs-bi' && (input.meta?.origin === 'demo' || input.meta?.demo === true);
       return saveBook({ version: 1, application: 'education-needs-bi', records,
-        meta: { origin: origin === 'portal' ? 'portal' : 'file', name: text(name, 100), importedAt: new Date().toISOString() } });
+        meta: { origin: origin === 'portal' ? 'portal' : 'file', demo, name: text(name, 100), importedAt: new Date().toISOString() } });
     } catch (error) { return { ok: false, message: error.message }; }
   }
   function importPortal() {
@@ -96,7 +93,12 @@
   }
   function dataLabel() {
     const meta = readBook().meta;
+    if (meta?.demo === true) return 'فایل آزمایشی واردشده: ' + (meta.name || 'پرونده‌های نمونه');
     return meta?.origin === 'portal' ? 'آخرین داده دریافت‌شده از پورتال' : meta?.origin === 'file' ? 'فایل واردشده: ' + (meta.name || 'پرونده‌ها') : 'داده‌های نمونه داشبورد؛ نمایشی';
+  }
+  function dataOrigin() {
+    const meta = readBook().meta;
+    return meta?.demo === true ? 'demo' : meta?.origin || 'unknown';
   }
   const paths = {
     check: '<path d="m5 12 4 4L19 6"/>',
@@ -149,7 +151,7 @@
       '<span class="bi-sidebar-label">حوزه‌های نیازسنجی</span>' + domains + '</nav>' +
       '<div class="sidebar-bottom"><button class="nav-link" data-standalone="data">' + icon('data') + '<span>دریافت و مدیریت داده</span></button>' +
       (portal ? '<a class="nav-link" href="' + e(portal) + '" target="_blank" rel="noopener">' + icon('external') + '<span>پورتال ثبت اطلاعات</span></a>' : '') +
-      '<p class="bi-sidebar-provenance">' + e(mode === 'source' ? 'جداول اصلی شهرستان‌ها' : dataLabel()) + '</p><p class="sidebar-caption">نسخه ' + D.fa('2.0.0') + '</p></div></aside>' +
+      '<p class="bi-sidebar-provenance">' + e(mode === 'demo' ? 'داده آزمایشی کامل؛ غیرواقعی' : mode === 'source' ? 'جداول اصلی شهرستان‌ها' : dataLabel()) + '</p><p class="sidebar-caption">نسخه ' + D.fa('2.1.0') + '</p></div></aside>' +
       '<header class="topbar"><div class="flex min-w-0 items-center gap-2"><button class="icon-button mobile-menu-button" data-standalone="menu" aria-label="باز کردن منو" aria-expanded="' + menuOpen + '" aria-controls="sidebar">' + icon('menu') +
       '</button><p class="mobile-brand-title">اطلس تحلیل آموزشی</p><nav class="breadcrumbs" aria-label="مسیر صفحه"><span>تحلیل نیازهای آموزشی</span>' + icon('chevron') + '<strong>' + e(current) + '</strong></nav></div>' +
       '<div class="topbar-actions"><button class="button button-secondary bi-data-shortcut" data-standalone="data">' + icon('upload') + 'دریافت داده</button>' + themeButton() + '</div></header>';
@@ -161,7 +163,7 @@
   }
   function openData() {
     const book = readBook(), dialog = document.getElementById('data-dialog');
-    dialog.innerHTML = '<div class="dialog-head"><h2 id="data-dialog-title">دریافت و مدیریت داده‌های پرونده</h2><button class="icon-button" data-standalone="close-data" aria-label="بستن">' + icon('close') + '</button></div><div class="dialog-body"><div class="bi-data-current"><strong>' + e(dataLabel()) + '</strong><span>' + D.fa(book.records.length) + ' پرونده</span></div><p class="bi-data-explain">جدول‌های اصلی شهرستان‌ها داخل این پروژه هستند. برای تحلیل پرونده‌های ثبت‌شده، یک نسخه از اطلاعات پورتال یا فایل JSON را دریافت کنید.</p><div class="bi-data-options"><button class="button button-primary" data-standalone="import-portal">' + icon('data') + 'دریافت از پورتال همین مرورگر</button><p>وقتی هر دو پروژه روی یک username.github.io باز شده‌اند، این دکمه نسخه فعلی داده پورتال را کپی می‌کند. ورود به پورتال و ثبت اطلاعات باید در همین مرورگر انجام شده باشد.</p><button class="button button-secondary" data-standalone="import-file">' + icon('upload') + 'ورود فایل JSON پرونده‌ها</button><p>فهرست پرونده‌ها یا فایل دارای records؛ حداکثر ۵ مگابایت و ۲۵۰ پرونده. مقدارهای خالی با داده نمونه پر نمی‌شوند.</p><button class="button button-secondary" data-standalone="export-json">' + icon('download') + 'دریافت نسخه JSON داده فعلی</button></div><p class="bi-data-note">به‌روزرسانی خودکار نیست. بعد از تغییر فرم‌های پورتال، دوباره داده را دریافت کنید. این داشبورد فقط اطلاعات را تحلیل می‌کند.</p></div><div class="dialog-footer"><button class="button button-quiet" data-standalone="reset-demo">بازگشت به داده‌های نمونه</button><button class="button button-secondary" data-standalone="close-data">بستن</button></div>';
+    dialog.innerHTML = '<div class="dialog-head"><h2 id="data-dialog-title">دریافت و مدیریت داده‌های پرونده</h2><button class="icon-button" data-standalone="close-data" aria-label="بستن">' + icon('close') + '</button></div><div class="dialog-body"><div class="bi-data-current"><strong>' + e(dataLabel()) + '</strong><span>' + D.fa(book.records.length) + ' پرونده</span></div><p class="bi-data-explain">داده آزمایشی کامل و جدول‌های اصلی شهرستان‌ها از تب منبع تحلیل قابل انتخاب‌اند. ۵۰ پرونده نمونه برای آزمون فرم‌ها وجود دارد. برای تحلیل پرونده‌های ثبت‌شده، یک نسخه از اطلاعات پورتال یا فایل JSON را دریافت کنید.</p><div class="bi-data-options"><button class="button button-primary" data-standalone="import-portal">' + icon('data') + 'دریافت از پورتال همین مرورگر</button><p>وقتی هر دو پروژه روی یک username.github.io باز شده‌اند، این دکمه نسخه فعلی داده پورتال را کپی می‌کند. ورود به پورتال و ثبت اطلاعات باید در همین مرورگر انجام شده باشد.</p><button class="button button-secondary" data-standalone="import-file">' + icon('upload') + 'ورود فایل JSON پرونده‌ها</button><p>فهرست پرونده‌ها یا فایل دارای records؛ حداکثر ۵ مگابایت و ۲۵۰ پرونده. مقدارهای خالی با داده نمونه پر نمی‌شوند.</p><button class="button button-secondary" data-standalone="export-json">' + icon('download') + 'دریافت نسخه JSON داده فعلی</button></div><p class="bi-data-note">به‌روزرسانی خودکار نیست. بعد از تغییر فرم‌های پورتال، دوباره داده را دریافت کنید. این داشبورد فقط اطلاعات را تحلیل می‌کند.</p></div><div class="dialog-footer"><button class="button button-quiet" data-standalone="reset-demo">بازگشت به داده‌های نمونه</button><button class="button button-secondary" data-standalone="close-data">بستن</button></div>';
     dialog.showModal();
   }
   function downloadJSON() {
@@ -178,7 +180,7 @@
   function details(entityId, domainId, mode, basis) {
     const domain = D.definitions.find(d => d.id === domainId); if (!domain) return;
     const M = window.PortalAnalytics;
-    const model = mode === 'source' ? M.workbook(window.PortalCountyData) : M.submissions(readBook().records.filter(r => r.id === entityId), basis);
+    const model = mode === 'records' ? M.submissions(readBook().records.filter(r => r.id === entityId), basis, dataOrigin()) : M.workbook(mode === 'demo' ? window.PortalDemoData.workbook : window.PortalCountyData);
     const entity = model.entities.find(item => item.id === entityId); if (!entity) return;
     const facts = model.facts.filter(f => f.entityId === entityId && f.domainId === domainId);
     const dialog = document.getElementById('details-dialog');
@@ -186,7 +188,7 @@
     function row(f) { return '<tr><th scope="row">' + e(f.title) + '</th><td>' + (f.status === 'valid' ? e(D.fa(f.value)) : '—') + '</td><td>' + e(labels[f.status]) + '</td></tr>'; }
     const extras = model.extras.filter(f => f.entityId === entityId && f.domainId === domainId);
     const items = model.items.filter(f => f.entityId === entityId && f.domainId === domainId);
-    dialog.innerHTML = '<div class="dialog-head"><h2 id="details-dialog-title">' + e(entity.name + ' · ' + domain.title) + '</h2><button class="icon-button" data-standalone="close-details" aria-label="بستن">' + icon('close') + '</button></div><div class="dialog-body"><p class="bi-data-explain">' + (mode === 'source' ? 'مقادیر اصلی شهرستان؛ بدون پر کردن سلول خالی.' : (basis === 'latest' ? 'آخرین فرم ذخیره‌شده' : 'آخرین نسخه ارسال‌شده') + ' · کد مرکز: ' + e(D.fa(entity.code)) + ' · شهرستان: ' + e(entity.county)) + '</p><div class="bi-table-scroll"><table class="bi-detail-table"><caption class="sr-only">جزئیات شاخص‌های حوزه</caption><thead><tr><th scope="col">شاخص</th><th scope="col">مقدار</th><th scope="col">وضعیت داده</th></tr></thead><tbody>' + facts.map(row).join('') + '</tbody></table></div>' + (extras.length ? '<h3 class="bi-detail-subtitle">فیلدهای تکمیلی</h3><div class="bi-table-scroll"><table class="bi-detail-table"><tbody>' + extras.map(row).join('') + '</tbody></table></div>' : '') + (items.length ? '<h3 class="bi-detail-subtitle">جزئیات اقلام</h3><div class="bi-table-scroll"><table class="bi-detail-table"><thead><tr><th>محل</th><th>تجهیز</th><th>تعداد</th></tr></thead><tbody>' + items.map(i => '<tr><td>' + e(i.place) + '</td><td>' + e(i.title) + '</td><td>' + e(D.fa(i.count)) + '</td></tr>').join('') + '</tbody></table></div>' : '') + '</div><div class="dialog-footer"><button class="button button-secondary" data-standalone="close-details">بستن</button></div>';
+    dialog.innerHTML = '<div class="dialog-head"><h2 id="details-dialog-title">' + e(entity.name + ' · ' + domain.title) + '</h2><button class="icon-button" data-standalone="close-details" aria-label="بستن">' + icon('close') + '</button></div><div class="dialog-body"><p class="bi-data-explain">' + (mode === 'demo' ? 'داده آزمایشی شهرستان؛ همه مقادیر این پنجره غیرواقعی‌اند.' : mode === 'source' ? 'مقادیر اصلی شهرستان؛ بدون پر کردن سلول خالی.' : (model.origin === 'demo' ? 'پرونده آزمایشی؛ مقادیر ساختگی‌اند. ' : '') + (basis === 'latest' ? 'آخرین فرم ذخیره‌شده' : 'آخرین نسخه ارسال‌شده') + ' · کد مرکز: ' + e(D.fa(entity.code)) + ' · شهرستان: ' + e(entity.county)) + '</p><div class="bi-table-scroll"><table class="bi-detail-table"><caption class="sr-only">جزئیات شاخص‌های حوزه</caption><thead><tr><th scope="col">شاخص</th><th scope="col">مقدار</th><th scope="col">وضعیت داده</th></tr></thead><tbody>' + facts.map(row).join('') + '</tbody></table></div>' + (extras.length ? '<h3 class="bi-detail-subtitle">فیلدهای تکمیلی</h3><div class="bi-table-scroll"><table class="bi-detail-table"><tbody>' + extras.map(row).join('') + '</tbody></table></div>' : '') + (items.length ? '<h3 class="bi-detail-subtitle">جزئیات اقلام</h3><div class="bi-table-scroll"><table class="bi-detail-table"><thead><tr><th>محل</th><th>تجهیز</th><th>تعداد</th></tr></thead><tbody>' + items.map(i => '<tr><td>' + e(i.place) + '</td><td>' + e(i.title) + '</td><td>' + e(D.fa(i.count)) + '</td></tr>').join('') + '</tbody></table></div>' : '') + '</div><div class="dialog-footer"><button class="button button-secondary" data-standalone="close-details">بستن</button></div>';
     dialog.showModal();
   }
   document.addEventListener('click', event => {
@@ -225,8 +227,8 @@
   });
   matchMedia('(min-width:1024px)').addEventListener('change', event => { if (event.matches && menuOpen) setMenu(false); });
   window.Portal = Object.freeze({ KEY, COPYKEY: 'education-needs-bi:metadata:v1', labels,
-    list: () => clone(readBook().records), text: (key, fallback) => fallback, dataLabel,
+    list: () => clone(readBook().records), text: (key, fallback) => fallback, dataLabel, origin: dataOrigin,
     importBook, importPortal, normalizeRecords, exportBook: () => clone(readBook()), resetDemo: () => saveBook(seedBook()) });
   window.PortalUI = Object.freeze({ shell, icon, toast, details, closeMenu: () => setMenu(false),
-    footer: () => '<footer class="page-footer"><span>اطلس تحلیل آموزشی · بررسی نیازهای خراسان شمالی</span><span>نسخه ' + D.fa('2.0.0') + '</span></footer>' });
+    footer: () => '<footer class="page-footer"><span>اطلس تحلیل آموزشی · بررسی نیازهای خراسان شمالی</span><span>نسخه ' + D.fa('2.1.0') + '</span></footer>' });
 })();

@@ -1,0 +1,15 @@
+.bi-data-shortcut { font-size:.75rem; min-height:2.3rem; padding:.4rem .7rem; }
+.bi-data-dialog { max-width:660px; }
+.bi-details-dialog { max-width:960px; }
+.bi-data-current { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:.5rem; padding:.9rem 1rem; border:1px solid var(--border); background:var(--accent-soft); color:var(--accent-ink); border-radius:.5rem; font-size:.8rem; }
+.bi-data-current > span { white-space:nowrap; }
+.bi-data-explain { font-size:.83rem; line-height:2.1; color:var(--body-muted); margin:1rem 0; }
+.bi-data-options { display:grid; gap:.75rem; margin-top:1.3rem; }
+.bi-data-options .button { justify-self:start; }
+.bi-data-options p { font-size:.75rem; line-height:2; color:var(--body-muted); margin-bottom:.6rem; }
+.bi-data-note { font-size:.76rem; line-height:2; border-top:1px solid var(--border); padding-top:1rem; margin-top:.7rem; color:var(--body-muted); }
+.bi-detail-subtitle { font-size:.88rem; font-weight:650; margin:1.4rem 0 .7rem; }
+.bi-details-dialog .dialog-body { max-height:72vh; overflow:auto; }
+.bi-details-dialog .bi-detail-table { min-width:480px; }
+@media (max-width:639px) { .bi-data-shortcut { font-size:.68rem; padding:.35rem .55rem; } .bi-data-shortcut .icon { width:.9rem; height:.9rem; } .bi-data-dialog .dialog-body,.bi-details-dialog .dialog-body { padding:1rem; } .bi-data-options .button { width:100%; } .bi-data-dialog .dialog-footer { flex-wrap:wrap; } .bi-data-explain { font-size:.8rem; } }
+@media print { #data-dialog,#details-dialog { display:none!important; } }

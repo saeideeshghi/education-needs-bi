@@ -1,0 +1,12 @@
+{
+  "name": "education-needs-bi",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Standalone Persian RTL education needs analytics dashboard",
+  "scripts": {
+    "start": "node tools/serve.js",
+    "build": "node tools/build.js",
+    "check": "node tools/check.js",
+    "test": "node --test tools/test-analytics.js"
+  }
+}
